@@ -6,14 +6,12 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 async function getAddressFromCoordinates(latitude, longitude) {
   try {
-
-    // Using OpenStreetMap's Nominatim service instead of Google Maps
     const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`;
     
     const response = await fetch(nominatimUrl, {
       headers: {
         'User-Agent': process.env.APP_NAME || 'CivicIssueReporter/1.0',
-        'Accept-Language': 'en' // Request English results
+        'Accept-Language': 'en'
       }
     });
     
@@ -22,16 +20,22 @@ async function getAddressFromCoordinates(latitude, longitude) {
     }
     
     const data = await response.json();
-    
-    if (data.display_name) {
-      return data.display_name;
-    } else {
-      return null;
-    }
+    return data.display_name || null;
   } catch (error) {
     console.error('Error fetching address:', error);
     return null;
   }
+}
+
+function isCoordinates(location) {
+  // Check if location is in the format "latitude,longitude"
+  const coords = location.split(',').map(coord => coord.trim());
+  if (coords.length !== 2) return false;
+  
+  const [latitude, longitude] = coords.map(Number);
+  return !isNaN(latitude) && !isNaN(longitude) &&
+         latitude >= -90 && latitude <= 90 &&
+         longitude >= -180 && longitude <= 180;
 }
 
 export async function POST(request) {
@@ -47,26 +51,19 @@ export async function POST(request) {
       );
     }
 
-    // Extract latitude & longitude
-    const [latitude, longitude] = location.split(',').map(coord => coord.trim());
-
-    // Input validation for coordinates
-    if (isNaN(latitude) || isNaN(longitude) ||
-        latitude < -90 || latitude > 90 ||
-        longitude < -180 || longitude > 180) {
-      return NextResponse.json(
-        { message: 'Invalid coordinates provided.' },
-        { status: 400 }
-      );
-    }
-
-    // Convert Lat-Long to Address
-    const address = await getAddressFromCoordinates(latitude, longitude);
-    if (!address) {
-      return NextResponse.json(
-        { message: 'Unable to determine a valid address from coordinates.' },
-        { status: 400 }
-      );
+    // Handle location processing
+    let finalLocation = location;
+    if (isCoordinates(location)) {
+      const [latitude, longitude] = location.split(',').map(coord => coord.trim());
+      const address = await getAddressFromCoordinates(latitude, longitude);
+      
+      if (!address) {
+        return NextResponse.json(
+          { message: 'Unable to determine a valid address from coordinates.' },
+          { status: 400 }
+        );
+      }
+      finalLocation = address;
     }
 
     // Initialize Gemini Model
@@ -76,7 +73,7 @@ export async function POST(request) {
     const prompt = `You are an AI assistant helping users report civic issues to the correct local authorities.
 A user has reported an issue with the following details:
 - **Issue Type:** ${issueType}
-- **Location:** ${address}
+- **Location:** ${finalLocation}
 - **Description:** ${description}
 ### Task:
 - Identify the **official government department** responsible for handling this issue in this locality.
@@ -94,11 +91,10 @@ A user has reported an issue with the following details:
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
-    console.log('API Response:', text); // Log API response
+    console.log('API Response:', text);
 
     try {
       const authorityInfo = JSON.parse(text);
-      // Ensure essential fields are present
       if (!authorityInfo.department || !authorityInfo.contactNumber) {
         return NextResponse.json(
           {
@@ -129,4 +125,3 @@ A user has reported an issue with the following details:
     );
   }
 }
-
