@@ -42,7 +42,7 @@ const Navbar = () => {
             
             <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
               <NavLink href="/report">Report Issue</NavLink>
-              <NavLink href="/ans">Report Anonymously</NavLink>
+             
               <NavLink href="/about">About</NavLink>
               <SignedIn>
                 <UserButton />
